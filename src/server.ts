@@ -38,8 +38,8 @@ connect();
 
 app.get('/', (req: Request, res: Response) => {
     res.send('Hello from Express + TypeScript!');
-  });
   
-  app.listen(port, () => {
-    console.log(`Server running on port ${port}`);
   });
+ app.listen(8080, '0.0.0.0', () => {
+  console.log('Server running on port 8080');
+});
