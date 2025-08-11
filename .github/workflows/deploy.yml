@@ -1,32 +1,46 @@
-name: Deploy App to EC2
+name: Deploy to EC2
 
 on:
   push:
     branches:
-      - main  # Trigger on push to the main branch
+      - main   # Deploy only when pushing to main
 
 jobs:
   deploy:
-    name: Deploy to EC2 instance
     runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout source code
-      uses: actions/checkout@v3
+      # 1. Checkout repository code
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-    - name: Set up SSH key
-      run: |
-        echo "${{ secrets.EC2_KEY }}" > key.pem
-        chmod 600 key.pem
+      # 2. Install dependencies & build the app (Node.js example)
+      - name: Install & Build
+        run: |
+          npm ci
+          npm run build
 
-    - name: Copy project files to EC2
-      run: |
-        rsync -avz -e "ssh -i key.pem -o StrictHostKeyChecking=no" ./ ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}:/home/${{ secrets.EC2_USER }}/app/
+      # 3. Start SSH agent and load private key from GitHub Secrets
+      - name: Start SSH Agent
+        uses: webfactory/ssh-agent@v0.5.4
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
 
-    - name: Run deployment script on EC2
-      run: |
-        ssh -i key.pem -o StrictHostKeyChecking=no ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} "
-          cd /home/${{ secrets.EC2_USER }}/app &&
-          chmod +x deploy.sh &&
-          ./deploy.sh
-        "
+      # 4. Add EC2 to known_hosts to avoid manual confirmation
+      - name: Add EC2 Host Key
+        run: ssh-keyscan -H ${{ secrets.EC2_HOST }} >> ~/.ssh/known_hosts
+
+      # 5. Copy built files to EC2 app directory
+      - name: Upload files
+        run: |
+          scp -o StrictHostKeyChecking=no -r ./build/* \
+          ${{ secrets.SSH_USER }}@${{ secrets.EC2_HOST }}:/home/${{ secrets.SSH_USER }}/app/
+
+      # 6. Install dependencies on EC2 & restart app
+      - name: Restart Application
+        run: |
+          ssh -o StrictHostKeyChecking=no ${{ secrets.SSH_USER }}@${{ secrets.EC2_HOST }} << 'EOF'
+            cd /home/${{ secrets.SSH_USER }}/app
+            npm install --production
+            pm2 startOrReload ecosystem.config.js || pm2 start ./server.js
+          EOF
